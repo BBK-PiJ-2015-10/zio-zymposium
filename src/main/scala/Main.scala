@@ -146,8 +146,8 @@ object Main extends ZIOAppDefault {
         (in: Chunk[In]) => {
           val out  = in.scanLeft(state)(f)
           val updatedState = out.lastOption.getOrElse(state)
-          println(s"[IN: $in \nOut: $out \nSTATE: $state]")
-          ZChannel.write(out) *> read(updatedState)
+          println(s"[IN: $in \nOUT: $out \nSTATE: $state]")
+          ZChannel.write(out.drop(1)) *> read(updatedState)
         },
         (error: ZNothing) => ZChannel.fail(error),
         (done: Any) => ZChannel.succeed(done)
@@ -157,7 +157,7 @@ object Main extends ZIOAppDefault {
 
   val initial = ZStream(1,3,4,5)
 
-  val runStreams3 = initial >>> myScan[Int,Int](0)(_ + _) >>> collectFive
+  val runStreams3 = initial.rechunk(2) >>> myScan[Int,Int](0)(_ + _) >>> collectFive
 
 
   //val fileWritesiNK: ZSink[Any,IOException,Byte,Nothing,Unit] = ???
