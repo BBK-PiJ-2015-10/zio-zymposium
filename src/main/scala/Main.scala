@@ -105,7 +105,64 @@ object Main extends ZIOAppDefault {
   type MyZPipeline[-Env,+Err,-In,+Out] = MyZChannel[Env,Nothing,Chunk[In],Any,Err,Chunk[Out],Any]
   type MyZIO[-R,+E,+A] =                 MyZChannel[R,Any,Any,Any,E,Nothing,A]
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =  runViaPipes4.debug("ale")
+  //val exampleOfMultipleErrors : ZStream[Any,Nothing,Either[MyError,MyValue]]
+
+
+  val customDoubler: ZPipeline[Any, Nothing, Int, Int] = myMap[Int,Int](_ * 2)
+
+  //val customTwiceDoubler: ZPipeline[Any, Nothing, Int, Int] = myMapTwice[Int,Int](_ * 2)
+
+  val naturals = ZStream.unfold(0)(s => Some(s,s+1))
+
+  val runStreamCustom =
+    naturals.rechunk(2) >>> customDoubler >>> filter >>> collectFive
+
+//  val runStreamCustom2 =
+//    naturals.rechunk(2) >>> customTwiceDoubler >>> filter >>> collectFive
+
+
+  def myMap[In,Out](f: In => Out): ZPipeline[Any,Nothing,In,Out] = {
+
+    lazy val read : ZChannel[Any,ZNothing,Chunk[In],Any,Nothing,Chunk[Out],Any] =
+      ZChannel.readWith(
+      (in: Chunk[In]) => {
+        val out = in.map(f)
+        println(s"[Read: $in, Write: $out]")
+        ZChannel.write(out) *> read
+      },
+      (error: ZNothing) => ZChannel.fail(error),
+      (done: Any) => ZChannel.succeed(done)
+    )
+    ZPipeline.fromChannel(read)
+  }
+
+  // Stream(1,3,4,5)
+  //.scan(0)(_ + _)
+  //Stream(0,1,4,8,13
+  def myScan[In,Out](zero: Out)(f: (Out,In) => Out): ZPipeline[Any,Nothing,In,Out] = {
+
+    def read(state: Out) : ZChannel[Any,ZNothing,Chunk[In],Any,Nothing,Chunk[Out],Any] =
+      ZChannel.readWith(
+        (in: Chunk[In]) => {
+          val out  = in.scanLeft(state)(f)
+          val updatedState = out.lastOption.getOrElse(state)
+          println(s"[IN: $in \nOut: $out \nSTATE: $state]")
+          ZChannel.write(out) *> read(updatedState)
+        },
+        (error: ZNothing) => ZChannel.fail(error),
+        (done: Any) => ZChannel.succeed(done)
+      )
+    ZPipeline.fromChannel(read(zero))
+  }
+
+  val initial = ZStream(1,3,4,5)
+
+  val runStreams3 = initial >>> myScan[Int,Int](0)(_ + _) >>> collectFive
+
+
+  //val fileWritesiNK: ZSink[Any,IOException,Byte,Nothing,Unit] = ???
+
+  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = runStreams3.debug("ale")
   //{
 //    for {
 //     // _ <- runViaPipes.debug("RUN 1")
@@ -116,8 +173,8 @@ object Main extends ZIOAppDefault {
 
  // runViaPipes.debug("mima") zipRight   runViaPipes2.debug("Hello")
 
-    //source https://www.youtube.com/watch?v=8hG_UY0Dazw
-  //left on 52:00
+    //source https://www.youtube.com/watch?v=8hG_UY0Dazw part 2
+  //left on 33:30
 
   //}
 
