@@ -120,6 +120,7 @@ object Main extends ZIOAppDefault {
 //  val runStreamCustom2 =
 //    naturals.rechunk(2) >>> customTwiceDoubler >>> filter >>> collectFive
 
+  //ZStream.fromZIO(ZIO.executor.debug)
 
   def myMap[In,Out](f: In => Out): ZPipeline[Any,Nothing,In,Out] = {
 
@@ -162,7 +163,94 @@ object Main extends ZIOAppDefault {
 
   //val fileWritesiNK: ZSink[Any,IOException,Byte,Nothing,Unit] = ???
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = runStreams3.debug("ale")
+  //Session 3
+
+  sealed trait Sandwich
+
+  object Sandwich {
+    case object Calypso extends Sandwich
+    case object CaptChicken extends Sandwich
+    case object Jaws extends Sandwich
+    case object PorkeysNightmare extends Sandwich
+    case object Boring extends Sandwich
+  }
+
+  val sandwichMapping  =
+  Map(
+    "Calipso" -> Sandwich.Calypso,
+    "CaptChick" -> Sandwich.CaptChicken,
+    "Jaws" -> Sandwich.Jaws,
+    "PorkeysNightmare" -> Sandwich.PorkeysNightmare,
+     "Boring" -> Sandwich.Boring
+  )
+
+  def eat(sandwich: Sandwich): UIO[Unit] = ZIO.debug(s"YUM! A delicious: ${sandwich.toString}")
+
+
+  val encodedSandwiches = Chunk.fromIterable(
+    ("Calipso" + "PorkeysNightmare" + "Boring" + "Boring" +"Jaws" + "Jaws")
+  )
+
+  val encodedSandwichStream : UStream[Char] = ZStream.fromChunk(encodedSandwiches)
+
+  val sandwichDecodingPipeline: ZPipeline[Any,Nothing,Char,Sandwich] = {
+
+    // read some input
+    // decode as many sandwich as we can, maybe getting some left over input
+    // emit the sandwiches decoded
+    // read more input and added it to the left overs
+    // repeat
+
+    def read(buffer: Chunk[Char]): ZChannel[Any,ZNothing,Chunk[Char],Any,Nothing,Chunk[Sandwich],Any] =
+      ZChannel.readWith(
+        (in: Chunk[Char]) => {
+          val (leftOvers, sandwiches) = processBuffer(buffer,in)
+          ZChannel.writeAll(sandwiches) *> read(leftOvers)
+        },
+        (error: ZNothing) => ZChannel.fail(error),
+        (done: Any) =>
+          ZChannel
+          .fromZIO(ZIO.debug(s"WARNING: SANDWICH FRAGMENT ${buffer.mkString} LOST! HUNGER MAY ENSURE ")
+            .when(buffer.nonEmpty))
+          *>
+          ZChannel.succeed(done)
+      )
+
+    ZPipeline.fromChannel(read(Chunk.empty))
+
+  }
+
+  // Chunk[JawsBO]
+  // Chunk[ringBoringBoring]
+  // -> (Chunk[BO],Chunk[Jaws])
+  // -> (Chunk[CA],(Chunk[Boring],Chunk[Boring],Chunk[Boring]))
+  private def processBuffer(buffer: Chunk[Char],input: Chunk[Char]): (Chunk[Char],Chunk[Sandwich]) = {
+     val combined = buffer ++ input
+     val iterator = combined.iterator
+     val builder= ChunkBuilder.make[Sandwich]()
+     var candidate = ""
+     while (iterator.hasNext){
+       val char = iterator.next()
+       candidate += char
+       sandwichMapping.get(candidate) match {
+         case Some(sandwich) => {
+           builder += sandwich
+           candidate = ""
+         }
+         case None => ()
+       }
+     }
+    (Chunk.fromIterable(candidate),builder.result())
+  }
+
+  val decodedSandwichStream: UStream[Sandwich] = encodedSandwichStream >>> sandwichDecodingPipeline
+
+  val runSandwichStream: ZIO[Any, Nothing, Chunk[Sandwich]] =
+    decodedSandwichStream.tap(eat(_)).runCollect.debug
+
+  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = Console.printLine("ALEXIS") *>
+    runSandwichStream
+
   //{
 //    for {
 //     // _ <- runViaPipes.debug("RUN 1")
