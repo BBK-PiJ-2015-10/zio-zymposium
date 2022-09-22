@@ -193,6 +193,8 @@ object Main extends ZIOAppDefault {
 
   val encodedSandwichStream : UStream[Char] = ZStream.fromChunk(encodedSandwiches)
 
+  val encodedSandwichStream1 : UStream[Char] = encodedSandwichStream.rechunk(3)
+
   val sandwichDecodingPipeline: ZPipeline[Any,Nothing,Char,Sandwich] = {
 
     // read some input
@@ -243,7 +245,8 @@ object Main extends ZIOAppDefault {
     (Chunk.fromIterable(candidate),builder.result())
   }
 
-  val decodedSandwichStream: UStream[Sandwich] = encodedSandwichStream >>> sandwichDecodingPipeline
+  val decodedSandwichStream: UStream[Sandwich] =
+    encodedSandwichStream1.chunksWith(_.debug) >>> sandwichDecodingPipeline
 
   val runSandwichStream: ZIO[Any, Nothing, Chunk[Sandwich]] =
     decodedSandwichStream.tap(eat(_)).runCollect.debug
