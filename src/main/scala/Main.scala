@@ -188,7 +188,7 @@ object Main extends ZIOAppDefault {
 
 
   val encodedSandwiches = Chunk.fromIterable(
-    ("Calipso" + "PorkeysNightmare" + "Boring" + "Boring" +"Jaws" + "Jaws")
+    ("Calipso" + "PorkeysNightmare" + "Boring" + "Boring" +"Jaws" + "Jaws" + "DOGS")
   )
 
   val encodedSandwichStream : UStream[Char] = ZStream.fromChunk(encodedSandwiches)
