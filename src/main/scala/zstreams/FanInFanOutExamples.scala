@@ -104,6 +104,17 @@ object FanInFanOutExamples extends ZIOAppDefault{
     [RED,RED][BLUE,GREEN]
     zipWithLatest - pairwise combine them, hold on to the last value seen from each side, emit new value
     (RED,RED) (RED,GREEN) (BLUE,GREEN)
+    interleave
+    //aggregateAsynchWithin
+
+   */
+
+  /*
+    ZIO combinations
+     zip
+     zipPar
+     race
+     orElse
    */
 
   sealed trait Marble
@@ -133,12 +144,6 @@ object FanInFanOutExamples extends ZIOAppDefault{
 
   val zipWithLatestMarbleExample =
     stream1Marbles.zipWithLatest(stream2Marbles)((_,_)).debug.runDrain
-
-  /*
-      zip / zipWith - pairwise combine them, pull from both upstreams and emit one value once you have a value from both
-
-   */
-
 
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = zipWithLatestMarbleExample
