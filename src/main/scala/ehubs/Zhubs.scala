@@ -1,6 +1,7 @@
-package zhubs
+package ehubs
 
 import zio._
+import zio.stream._
 
 object Zhubs extends ZIOAppDefault {
 
@@ -133,6 +134,43 @@ object Zhubs extends ZIOAppDefault {
     _ <- ZIO.sleep(1.seconds)
   } yield ()
 
+  lazy val sourceStream: ZStream[Any,Nothing,Int] =
+    ZStream.fromIterable(List(1,2,3,4,5))
+      .tap(_ => ZIO.sleep(1000.milliseconds))
+
+  def consumerPipeline[A](label: String) : ZPipeline[Any,Nothing,A,A] =
+    ZPipeline.mapZIO(a => {
+        Console.printLine(s"$label got $a").orDie *>
+        ZIO.succeed(a)
+    })
+
+  lazy val streamsViBroadCastExample = sourceStream.broadcast(4,16).flatMap { streams =>
+    val consumedStreams = {
+      Chunk(
+        streams(0) via consumerPipeline[Int]("logging framework"),
+        streams(1) via consumerPipeline[Int]("database writer"),
+        streams(2) via consumerPipeline[Int]("data eater"),
+        streams(3) via consumerPipeline[Int]("info destroyer")
+      )
+    }
+    ZStream.mergeAllUnbounded(16)(consumedStreams: _*).runDrain
+  }
+
+  lazy val streamsViaBroadCastDynamicExample = sourceStream.broadcastDynamic(16).flatMap { stream =>
+    val consumedStreams = {
+      Chunk(
+        stream >>> consumerPipeline[Int]("logging framework"),
+        stream >>> consumerPipeline[Int]("database writer"),
+        stream >>> consumerPipeline[Int]("data eater"),
+        stream >>> consumerPipeline[Int]("info destroyer")
+      )
+    }
+    ZStream.mergeAllUnbounded(16)(consumedStreams: _*).runDrain
+  }
+
+
+
+
 
   /*
      Naive Hub
@@ -147,9 +185,15 @@ object Zhubs extends ZIOAppDefault {
      consumer2   index == 2
    */
 
+  /*
+       Unbounded => unlimited capacity, pub
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = queueExampleWithHubWithCounter
+   */
 
-  //left on minute  40:17
+
+  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = streamsViBroadCastDynamicExample
+
+  //left on minute  47:00
+  //reference https://www.youtube.com/watch?v=8jhLkWjsO5Y&list=PLvdARMfvom9C8ss18he1P5vOcogawm5uC&index=36&t=29s
 
 }
