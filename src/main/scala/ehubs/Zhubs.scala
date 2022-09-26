@@ -168,6 +168,24 @@ object Zhubs extends ZIOAppDefault {
     ZStream.mergeAllUnbounded(16)(consumedStreams: _*).runDrain
   }
 
+  /*
+    Take represents different potential results from taking from a stream
+    a - Chunk of values
+    b - Error
+    c - End of stream signal
+   */
+  lazy val streamsExampleToNonStreams =
+    for {
+      hub <- Hub.bounded[Take[Nothing,Int]](16)
+      _   <- sourceStream.runIntoHub(hub).fork
+      dequeue <- hub.subscribe
+      _     <- dequeue.take.flatMap
+      {
+        case Take(Exit.Failure(cause)) => Console.printLine(s"Stream error $cause")
+        case Take(Exit.Success(Chunk(chunk))) => Console.printLine(s"Stream chunck $chunk")
+      }
+    } yield ()
+
 
 
 
@@ -191,9 +209,9 @@ object Zhubs extends ZIOAppDefault {
    */
 
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = streamsViBroadCastDynamicExample
+  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =  streamsExampleToNonStreams.debug("ale")
 
-  //left on minute  47:00
+  //left on minute  1:177:00
   //reference https://www.youtube.com/watch?v=8jhLkWjsO5Y&list=PLvdARMfvom9C8ss18he1P5vOcogawm5uC&index=36&t=29s
 
 }
