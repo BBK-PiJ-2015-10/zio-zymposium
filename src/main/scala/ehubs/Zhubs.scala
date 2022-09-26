@@ -183,10 +183,29 @@ object Zhubs extends ZIOAppDefault {
       {
         case Take(Exit.Failure(cause)) => Console.printLine(s"Stream error $cause")
         case Take(Exit.Success(Chunk(chunk))) => Console.printLine(s"Stream chunck $chunk")
+        case Take(huh) =>    Console.printLine(s"Stream got $huh")
       }
     } yield ()
 
 
+  lazy val streamsExample4 =
+    for {
+      hub <- Hub.bounded[Int](16)
+      stream = ZStream.fromHub(hub)
+      _    <- hub.publish(10).forever.fork
+      _   <- stream.take(10).foreach { a => Console.printLine(a)}
+    } yield ()
+
+
+
+
+  /*
+
+      Non Stream            Hub.publish, Hub.subscribe,
+      Stream to stream      ZStream#broadcast, ZStream#broadcastDynamic
+      Stream to non-stream  ZStream#runIntoHub
+      non-stream to stream  ZStream.fromHub
+   */
 
 
 
@@ -209,7 +228,9 @@ object Zhubs extends ZIOAppDefault {
    */
 
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =  streamsExampleToNonStreams.debug("ale")
+
+
+  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =  streamsExample4.debug("ale")
 
   //left on minute  1:177:00
   //reference https://www.youtube.com/watch?v=8jhLkWjsO5Y&list=PLvdARMfvom9C8ss18he1P5vOcogawm5uC&index=36&t=29s
