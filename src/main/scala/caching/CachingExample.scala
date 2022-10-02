@@ -56,12 +56,61 @@ object CachingExample extends ZIOAppDefault {
 
   }
 
-  val example1 = for {
+
+  sealed trait MyState[+A]
+  case class Value[A](value: A, deadline: Instant) extends MyState[A]
+  case object Empty extends MyState[Nothing]
+
+  object Utilities {
+
+    val dog : MyState[String] = ???
+
+    // Ref
+    // Ref we can perform pure updated within the modify function
+
+    // Ref.Synchronized
+    // Builds in a semaphore
+    //Let us perform ZIO operations in the update function
+    // Other writers have to semanticallly block while updating
+
+    // TRef?
+    //
+
+
+    def cached[R,E,A](zio: ZIO[R,E,A])(getDeadline: A => Instant) : UIO[ZIO[R,E,A]] =
+      for {
+      ref <- Ref.Synchronized.make[MyState[A]](Empty)
+    } yield ref.modify {
+        case Empty =>  for {
+          a  <- zio
+          deadline = getDeadline(a)
+          newSate = Value(a,deadline)
+        } yield (a,newSate)
+        case  Value(a,deadline) =>  ???
+      }
+
+
+
+  }
+
+  val example1NonCached = for {
     token <- SlackClient.refreshToken
     _     <- ZIO.sleep(4.seconds)
     _     <- SlackClient.postMessage("Hello, all!",token)
     _     <- SlackClient.postMessage("Zymposium rocks",token)
   } yield ()
+
+  val example2CachedRun = { for {
+    cachedToken <- SlackClient.refreshToken.cached(4.seconds)
+    token <- cachedToken
+    _     <- SlackClient.postMessage("Hello, world!",token)
+    _     <- ZIO.sleep(2.seconds)
+    token <- cachedToken
+    _     <- SlackClient.postMessage("Wellcome to Zymposium",token)
+    _     <- ZIO.sleep(2.seconds)
+    token <- cachedToken
+    _     <- SlackClient.postMessage("Woo!",token)
+  } yield ()}.provide(SlackClient.live)
 
 
   val example = for {
@@ -73,7 +122,8 @@ object CachingExample extends ZIOAppDefault {
 
 
 
+  // left on 29.19
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    example1.provideLayer(SlackClient.live)
+    example2CachedRun
 }
