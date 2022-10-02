@@ -14,17 +14,18 @@ object CachingExample extends ZIOAppDefault {
 
   case class SlackClient(ref: Ref[Set[AuthToken]]){
 
-    def refreshToken: ZIO[Any, IOException, AuthToken] =
+    def refreshToken: ZIO[Any, Nothing, AuthToken] =
       for {
-        _    <- Console.print("Getting fresh token")
-        _    <- Console.print(".").delay(Duration.fromMillis(100)).repeatN(10)
-        _    <- Console.print("\n")
+        _    <- Console.print("Getting fresh token").orDie
+        _    <- Console.print(".").delay(Duration.fromMillis(100)).repeatN(10).orDie
+        _    <- Console.print("\n").orDie
 //        _  <-  ZIO.logInfo(s"Getting refresh token")
 //          .delay(Duration.fromMillis(100))
 //          .repeat(Schedule.recurs(10))
         now <- Clock.instant
         long <- Random.nextLong
-        expiration = now.plusSeconds(4)
+        //expiration = now.plusSeconds(4)
+        expiration = now.plusSeconds(7)
         token = AuthToken(long,expiration)
         _    <- ref.update(_.filterNot(_.isExpired(now)) + token)
       } yield token
@@ -41,7 +42,7 @@ object CachingExample extends ZIOAppDefault {
 
   object SlackClient {
 
-    def refreshToken: ZIO[SlackClient, IOException, AuthToken] =
+    def refreshToken: ZIO[SlackClient, Nothing, AuthToken] =
       ZIO.serviceWithZIO[SlackClient](_.refreshToken)
 
     def postMessage(message: String,token: AuthToken): ZIO[SlackClient,Throwable,Unit] =
@@ -63,8 +64,6 @@ object CachingExample extends ZIOAppDefault {
 
   object Utilities {
 
-    val dog : MyState[String] = ???
-
     // Ref
     // Ref we can perform pure updated within the modify function
 
@@ -75,22 +74,23 @@ object CachingExample extends ZIOAppDefault {
 
     // TRef?
     //
-
-
     def cached[R,E,A](zio: ZIO[R,E,A])(getDeadline: A => Instant) : UIO[ZIO[R,E,A]] =
       for {
       ref <- Ref.Synchronized.make[MyState[A]](Empty)
-    } yield ref.modify {
-        case Empty =>  for {
-          a  <- zio
-          deadline = getDeadline(a)
-          newSate = Value(a,deadline)
-        } yield (a,newSate)
-        case  Value(a,deadline) =>  ???
+      refresh = for {
+        _  <- ZIO.debug("STATE IS EMPTY. GETTING VALUE")
+        a  <- zio
+        deadline = getDeadline(a)
+        newSate = Value(a,deadline)
+      } yield (a,newSate)
+    } yield ref.modifyZIO {
+        case Empty => refresh
+        case state @ Value(a,deadline) =>
+          Clock.instant.flatMap { now =>
+            if (now.isBefore(deadline)) ZIO.succeed((a,state))
+            else refresh
+          }
       }
-
-
-
   }
 
   val example1NonCached = for {
@@ -112,18 +112,28 @@ object CachingExample extends ZIOAppDefault {
     _     <- SlackClient.postMessage("Woo!",token)
   } yield ()}.provide(SlackClient.live)
 
+  def loop(getToken: ZIO[SlackClient,Nothing,AuthToken]): ZIO[SlackClient,Throwable,Unit] =
+    for {
+      token <- getToken
+      _     <- SlackClient.postMessage(s"I love my token '$token'",token)
+      _     <- ZIO.sleep(2.seconds)
+      _     <- loop(getToken)
+    } yield ()
 
-  val example = for {
-    tokens   <- Ref.make[Set[AuthToken]](Set())
-    other = AuthToken(200L,Instant.now())
-    _   <- tokens.update(set => set + other )
-    _              <- SlackClient(tokens).refreshToken
-  } yield()
+
+  val exampleWithMyCachedRun = { for {
+    cachedToken <- Utilities.cached(SlackClient.refreshToken)(_.expiration.minusMillis(200))
+    _           <- loop(cachedToken).fork
+    _           <- Console.readLine
+  } yield ()}.provide(SlackClient.live)
+
+
+
 
 
 
   // left on 29.19
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    example2CachedRun
+    exampleWithMyCachedRun
 }
