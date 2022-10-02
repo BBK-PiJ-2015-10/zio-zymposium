@@ -116,24 +116,27 @@ object CachingExample extends ZIOAppDefault {
     for {
       token <- getToken
       _     <- SlackClient.postMessage(s"I love my token '$token'",token)
-      _     <- ZIO.sleep(2.seconds)
+      sleep <- Random.nextIntBetween(1,3)
+      _     <- ZIO.sleep(sleep.seconds)
       _     <- loop(getToken)
     } yield ()
 
 
   val exampleWithMyCachedRun = { for {
     cachedToken <- Utilities.cached(SlackClient.refreshToken)(_.expiration.minusMillis(200))
-    _           <- loop(cachedToken).fork
+    _           <- loop(cachedToken).onInterrupt(ZIO.debug("HELP!")).fork
     _           <- Console.readLine
   } yield ()}.provide(SlackClient.live)
 
+  val exampleWithMyCachedParellelRun = { for {
+    cachedToken <- Utilities.cached(SlackClient.refreshToken)(_.expiration.minusMillis(200))
+    _           <- ZIO.foreachPar(1 to 10)(n => loop(cachedToken)).onInterrupt(ZIO.debug("Help!")).fork
+    _           <- Console.readLine
+  } yield ()}
+    .provide(SlackClient.live)
 
-
-
-
-
-  // left on 29.19
+  // left on 48.389
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    exampleWithMyCachedRun
+    exampleWithMyCachedParellelRun
 }
