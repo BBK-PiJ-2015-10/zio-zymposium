@@ -4,6 +4,7 @@ import zio._
 
 import java.io.IOException
 import java.time.Instant
+import scala.concurrent.duration.{Deadline, FiniteDuration}
 
 //Source: https://www.youtube.com/watch?v=uv0kyCCfB1Q&list=PLvdARMfvom9C8ss18he1P5vOcogawm5uC&index=39
 object CachingExample extends ZIOAppDefault {
@@ -62,6 +63,24 @@ object CachingExample extends ZIOAppDefault {
   case class Value[A](value: A, deadline: Instant) extends MyState[A]
   case object Empty extends MyState[Nothing]
 
+  case class MyDeadline(deadline: Instant) {
+    def isExpired: ZIO[Any, Nothing, Boolean] = Clock.instant.map(_.isAfter(deadline))
+  }
+
+  object DeadlineExample {
+
+    val underlying: Deadline = ???
+
+    trait ZDeadline {
+
+      def timeLeft: UIO[FiniteDuration] = ZIO.succeed(underlying.timeLeft)
+
+
+    }
+
+
+  }
+
   object Utilities {
 
     // Ref
@@ -73,7 +92,6 @@ object CachingExample extends ZIOAppDefault {
     // Other writers have to semanticallly block while updating
 
     // TRef?
-    //
     def cached[R,E,A](zio: ZIO[R,E,A])(getDeadline: A => Instant) : UIO[ZIO[R,E,A]] =
       for {
       ref <- Ref.Synchronized.make[MyState[A]](Empty)
@@ -83,6 +101,7 @@ object CachingExample extends ZIOAppDefault {
         deadline = getDeadline(a)
         newSate = Value(a,deadline)
       } yield (a,newSate)
+        // ref.modify returns a tuple
     } yield ref.modifyZIO {
         case Empty => refresh
         case state @ Value(a,deadline) =>
@@ -91,7 +110,33 @@ object CachingExample extends ZIOAppDefault {
             else refresh
           }
       }
+
+
+    def cachedEager[R,E,A](zio: ZIO[R,E,A])(refreshDeadline: A => Instant): ZIO[R with Scope, E,ZIO[R,E,A]] = {
+
+      def loop(ref: Ref[A],deadline: Instant): ZIO[R, E, Unit] = for {
+        now <- Clock.instant
+        duration = now.until(deadline,java.time.temporal.ChronoUnit.MILLIS)
+        _    <- ZIO.sleep(duration.millis)
+        //duration = Duration.fromInterval(now,deadline)
+        //_    <- ZIO.sleep(duration)
+        a     <- zio
+        _    <- ref.set(a)
+        deadline = refreshDeadline(a)
+        _    <- loop(ref, deadline)
+      } yield()
+
+      for {
+         a  <- zio
+         deadline = refreshDeadline(a)
+          ref  <- Ref.make[A](a)
+         fiber <- loop(ref, deadline).forkScoped
+      } yield ref.get
+
+    }
+
   }
+
 
   val example1NonCached = for {
     token <- SlackClient.refreshToken
@@ -135,8 +180,16 @@ object CachingExample extends ZIOAppDefault {
   } yield ()}
     .provide(SlackClient.live)
 
-  // left on 48.389
+
+  val exampleWithMyCachedEacherParellelRun = { for {
+    cachedToken <- Utilities.cachedEager(SlackClient.refreshToken)(_.expiration.minusSeconds(2))
+    _           <- ZIO.foreachPar(1 to 10)(n => loop(cachedToken)).onInterrupt(ZIO.debug("Help!")).fork
+    _           <- Console.readLine
+  } yield ()}
+    .provide(SlackClient.live,Scope.default)
+
+  // left on 51.00
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    exampleWithMyCachedParellelRun
+    exampleWithMyCachedEacherParellelRun
 }
