@@ -137,6 +137,30 @@ object CachingExample extends ZIOAppDefault {
 
   }
 
+  case class CachedSlackClient(cachedGet: Task[AuthToken], slackClient: SlackClient) {
+
+    def sentMessage(message: String): Task[Unit] =
+      for {
+        token <- cachedGet
+        _   <- slackClient.postMessage(message,token)
+      } yield ()
+
+  }
+
+
+  object CachedSlackClient {
+
+    def sendMessage(message: String) =
+      ZIO.serviceWithZIO[CachedSlackClient](_.sentMessage(message))
+
+    val live = ZLayer.scoped {
+      for {
+      client <- ZIO.service[SlackClient]
+      cachedToken <- Utilities.cachedEager(client.refreshToken)(_.expiration.minusSeconds(2))
+    } yield CachedSlackClient(cachedToken,client)
+    }
+
+  }
 
   val example1NonCached = for {
     token <- SlackClient.refreshToken
@@ -188,8 +212,23 @@ object CachingExample extends ZIOAppDefault {
   } yield ()}
     .provide(SlackClient.live,Scope.default)
 
+  def loop2: ZIO[CachedSlackClient,Throwable,Unit] =
+    for {
+      _     <- CachedSlackClient.sendMessage("I love not having a token")
+      sleep <- Random.nextIntBetween(1,3)
+      _     <- ZIO.sleep(sleep.seconds)
+      _     <- loop2
+    } yield ()
+
+
+  val exampleWithMyCachedEacherParellelRunP2 = { for {
+    _           <- ZIO.foreachPar(1 to 10)(n => loop2).onInterrupt(ZIO.debug("Help!")).fork
+    _           <- Console.readLine
+  } yield ()}
+    .provide(CachedSlackClient.live,SlackClient.live)
+
   // left on 51.00
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    exampleWithMyCachedEacherParellelRun
+    exampleWithMyCachedEacherParellelRunP2
 }
