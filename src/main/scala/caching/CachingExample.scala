@@ -227,7 +227,6 @@ object CachingExample extends ZIOAppDefault {
   } yield ()}
     .provide(CachedSlackClient.live,SlackClient.live)
 
-  // left on 51.00
 
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
     exampleWithMyCachedEacherParellelRunP2
